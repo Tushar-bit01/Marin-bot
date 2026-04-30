@@ -1,0 +1,33 @@
+FROM node:20-slim
+
+# Install ffmpeg, yt-dlp dependencies and canvas dependencies
+RUN apt-get update && apt-get install -y \
+  ffmpeg \
+  python3 \
+  curl \
+  build-essential \
+  libcairo2-dev \
+  libpango1.0-dev \
+  libjpeg-dev \
+  libgif-dev \
+  librsvg2-dev \
+  && rm -rf /var/lib/apt/lists/*
+
+# Install yt-dlp
+RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
+  && chmod a+rx /usr/local/bin/yt-dlp
+
+# Install deno for yt-dlp YouTube support
+RUN curl -fsSL https://deno.land/install.sh | sh
+ENV PATH="/root/.deno/bin:$PATH"
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+COPY . .
+
+RUN mkdir -p temp
+
+CMD ["node", "index.js"]
