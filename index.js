@@ -31,11 +31,18 @@ const SPECIAL_PAIRS = [
   ['1273126903053684787', '793004680233484298'],
 ];
 
+// In-memory storage (resets on restart, fine for fun commands)
+const loreList = [];       // { text, author }
+const rivalPairs = {};     // 'id1-id2' -> { name1, name2, score1, score2 }
+
 // Make sure temp folder exists
 if (!fs.existsSync(path.join(__dirname, 'temp'))) {
   fs.mkdirSync(path.join(__dirname, 'temp'));
 }
 
+// ─────────────────────────────────────────
+// SHIP HELPERS
+// ─────────────────────────────────────────
 function getShipPercent(id1, id2) {
   for (const [a, b] of SPECIAL_PAIRS) {
     if ((id1 === a && id2 === b) || (id1 === b && id2 === a)) return 100;
@@ -56,6 +63,9 @@ function getShipName(name1, name2) {
   return name1.slice(0, Math.ceil(name1.length / 2)) + name2.slice(Math.floor(name2.length / 2));
 }
 
+// ─────────────────────────────────────────
+// CANVAS HELPERS
+// ─────────────────────────────────────────
 function drawCircularImage(ctx, img, x, y, radius) {
   ctx.save();
   ctx.beginPath();
@@ -93,6 +103,9 @@ function drawHeart(ctx, x, y, size, color) {
   ctx.restore();
 }
 
+// ─────────────────────────────────────────
+// SHIP IMAGE
+// ─────────────────────────────────────────
 async function generateShipImage(avatarUrl1, avatarUrl2, name1, name2, percent) {
   const W = 800, H = 340;
   const canvas = createCanvas(W, H);
@@ -109,9 +122,8 @@ async function generateShipImage(avatarUrl1, avatarUrl2, name1, name2, percent) 
   for (let i = 0; i < 80; i++) {
     const sx = Math.random() * W;
     const sy = Math.random() * H;
-    const sr = Math.random() * 1.5;
     ctx.beginPath();
-    ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+    ctx.arc(sx, sy, Math.random() * 1.5, 0, Math.PI * 2);
     ctx.fill();
   }
 
@@ -143,31 +155,32 @@ async function generateShipImage(avatarUrl1, avatarUrl2, name1, name2, percent) 
   ctx.fillText(`${percent}%`, W / 2, centerY + heartSize * 1.2);
   ctx.restore();
 
-  ctx.font = 'bold 22px Sans';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-
   ctx.save();
+  ctx.font = 'bold 22px Sans';
   ctx.fillStyle = '#ffffff';
   ctx.shadowColor = color1;
   ctx.shadowBlur = 10;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
   ctx.fillText(name1, leftX, centerY + avatarRadius + 12);
   ctx.restore();
 
   ctx.save();
+  ctx.font = 'bold 22px Sans';
   ctx.fillStyle = '#ffffff';
   ctx.shadowColor = color2;
   ctx.shadowBlur = 10;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
   ctx.fillText(name2, rightX, centerY + avatarRadius + 12);
   ctx.restore();
 
-  const shipName = getShipName(name1, name2);
   ctx.save();
   ctx.font = 'bold 20px Sans';
   ctx.fillStyle = 'rgba(255,255,255,0.6)';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
-  ctx.fillText(`✦ Ship name: ${shipName} ✦`, W / 2, 14);
+  ctx.fillText(`✦ Ship name: ${getShipName(name1, name2)} ✦`, W / 2, 14);
   ctx.restore();
 
   ctx.save();
@@ -189,6 +202,166 @@ async function generateShipImage(avatarUrl1, avatarUrl2, name1, name2, percent) 
   return canvas.toBuffer('image/png');
 }
 
+// ─────────────────────────────────────────
+// JAIL IMAGE
+// ─────────────────────────────────────────
+async function generateJailImage(avatarUrl, username) {
+  const W = 400, H = 400;
+  const canvas = createCanvas(W, H);
+  const ctx = canvas.getContext('2d');
+
+  // Dark background
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(0, 0, W, H);
+
+  // Grungy brick wall
+  for (let row = 0; row < 10; row++) {
+    for (let col = 0; col < 6; col++) {
+      const offset = row % 2 === 0 ? 0 : 35;
+      ctx.fillStyle = row % 2 === 0 ? '#2a2a2a' : '#252525';
+      ctx.fillRect(col * 70 + offset - 35, row * 40, 68, 38);
+      ctx.strokeStyle = '#1a1a1a';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(col * 70 + offset - 35, row * 40, 68, 38);
+    }
+  }
+
+  // Avatar
+  const avatar = await loadImage(avatarUrl + '?size=256');
+  drawCircularImage(ctx, avatar, W / 2, H / 2, 120);
+
+  // Glow ring
+  drawGlowRing(ctx, W / 2, H / 2, 120, '#ff4444');
+
+  // Jail bars over everything
+  const barColor = '#888888';
+  const barWidth = 18;
+  const barCount = 6;
+  const gap = W / barCount;
+
+  for (let i = 0; i < barCount; i++) {
+    const x = i * gap + gap / 2;
+    ctx.save();
+    ctx.fillStyle = barColor;
+    ctx.shadowColor = '#000';
+    ctx.shadowBlur = 6;
+    // Main vertical bar
+    ctx.fillRect(x - barWidth / 2, 0, barWidth, H);
+    // Bar shine
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillRect(x - barWidth / 2 + 3, 0, 4, H);
+    ctx.restore();
+  }
+
+  // Horizontal bar top and bottom
+  ctx.fillStyle = barColor;
+  ctx.fillRect(0, 30, W, 20);
+  ctx.fillRect(0, H - 50, W, 20);
+
+  // Username label
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(0, H - 48, W, 48);
+  ctx.font = 'bold 22px Sans';
+  ctx.fillStyle = '#ff4444';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.shadowColor = '#ff0000';
+  ctx.shadowBlur = 10;
+  ctx.fillText(`🔒 ${username} is in jail`, W / 2, H - 24);
+  ctx.restore();
+
+  return canvas.toBuffer('image/png');
+}
+
+// ─────────────────────────────────────────
+// HOW GAY IMAGE
+// ─────────────────────────────────────────
+async function generateGayImage(avatarUrl, username, percent) {
+  const W = 500, H = 300;
+  const canvas = createCanvas(W, H);
+  const ctx = canvas.getContext('2d');
+
+  // Rainbow background gradient
+  const bg = ctx.createLinearGradient(0, 0, W, H);
+  bg.addColorStop(0, '#ff6b6b');
+  bg.addColorStop(0.2, '#ffd93d');
+  bg.addColorStop(0.4, '#6bcb77');
+  bg.addColorStop(0.6, '#4d96ff');
+  bg.addColorStop(0.8, '#c77dff');
+  bg.addColorStop(1, '#ff6b6b');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Dark overlay
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(0, 0, W, H);
+
+  // Avatar
+  const avatar = await loadImage(avatarUrl + '?size=256');
+  drawCircularImage(ctx, avatar, 100, H / 2, 90);
+  drawGlowRing(ctx, 100, H / 2, 90, '#ff69b4');
+
+  // Meter bar background
+  const barX = 220, barY = 80, barW = 240, barH = 36;
+  ctx.fillStyle = 'rgba(255,255,255,0.15)';
+  ctx.beginPath();
+  ctx.roundRect(barX, barY, barW, barH, 18);
+  ctx.fill();
+
+  // Meter fill
+  const fillW = (percent / 100) * barW;
+  const fillGrad = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+  fillGrad.addColorStop(0, '#ff6b6b');
+  fillGrad.addColorStop(0.5, '#c77dff');
+  fillGrad.addColorStop(1, '#4d96ff');
+  ctx.fillStyle = fillGrad;
+  ctx.beginPath();
+  ctx.roundRect(barX, barY, fillW, barH, 18);
+  ctx.fill();
+
+  // Percent text
+  ctx.save();
+  ctx.font = 'bold 52px Sans';
+  ctx.fillStyle = '#ffffff';
+  ctx.shadowColor = '#ff69b4';
+  ctx.shadowBlur = 20;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText(`${percent}%`, barX, barY + 50);
+  ctx.restore();
+
+  // Label
+  ctx.save();
+  ctx.font = 'bold 20px Sans';
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText(`${username} is ${percent}% gay 🏳️‍🌈`, barX, barY - 36);
+  ctx.restore();
+
+  // Message
+  let msg = '';
+  if (percent >= 90) msg = 'Absolutely fabulous 💅';
+  else if (percent >= 70) msg = 'Very much so 🌈';
+  else if (percent >= 50) msg = 'More than you think 👀';
+  else if (percent >= 30) msg = 'A little curious 🤔';
+  else msg = 'Totally straight... sure 😭';
+
+  ctx.save();
+  ctx.font = '18px Sans';
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText(msg, barX, H - 20);
+  ctx.restore();
+
+  return canvas.toBuffer('image/png');
+}
+
+// ─────────────────────────────────────────
+// VIDEO DURATION
+// ─────────────────────────────────────────
 function getVideoDuration(filePath) {
   try {
     const output = execSync(
@@ -200,77 +373,217 @@ function getVideoDuration(filePath) {
   }
 }
 
+// ─────────────────────────────────────────
+// REGISTER COMMANDS
+// ─────────────────────────────────────────
 client.once('clientReady', async () => {
   console.log(`✅ Bot is online as ${client.user.tag}`);
 
-  const command = new SlashCommandBuilder()
-    .setName('ship')
-    .setDescription('💘 Ship two members and find out their compatibility!')
-    .addUserOption(option =>
-      option.setName('member1').setDescription('First member').setRequired(true)
-    )
-    .addUserOption(option =>
-      option.setName('member2').setDescription('Second member').setRequired(true)
-    );
+  const commands = [
+    new SlashCommandBuilder()
+      .setName('ship')
+      .setDescription('💘 Ship two members!')
+      .addUserOption(o => o.setName('member1').setDescription('First member').setRequired(true))
+      .addUserOption(o => o.setName('member2').setDescription('Second member').setRequired(true)),
+
+    new SlashCommandBuilder()
+      .setName('jail')
+      .setDescription('🔒 Put someone in jail!')
+      .addUserOption(o => o.setName('member').setDescription('Who to jail').setRequired(true)),
+
+    new SlashCommandBuilder()
+      .setName('howgay')
+      .setDescription('🏳️‍🌈 How gay is someone?')
+      .addUserOption(o => o.setName('member').setDescription('Who to check').setRequired(true)),
+
+    new SlashCommandBuilder()
+      .setName('rival')
+      .setDescription('⚔️ Set two people as rivals!')
+      .addUserOption(o => o.setName('member1').setDescription('First rival').setRequired(true))
+      .addUserOption(o => o.setName('member2').setDescription('Second rival').setRequired(true)),
+
+    new SlashCommandBuilder()
+      .setName('lore')
+      .setDescription('📖 Server lore!')
+      .addSubcommand(sub =>
+        sub.setName('add')
+          .setDescription('Add a lore entry')
+          .addStringOption(o => o.setName('text').setDescription('The lore').setRequired(true))
+      )
+      .addSubcommand(sub =>
+        sub.setName('get')
+          .setDescription('Get a random lore entry')
+      ),
+  ];
 
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
   try {
-    console.log('📡 Registering /ship to guild...');
+    console.log('📡 Registering slash commands...');
     await rest.put(
       Routes.applicationGuildCommands(client.user.id, GUILD_ID),
-      { body: [command.toJSON()] }
+      { body: commands.map(c => c.toJSON()) }
     );
-    console.log('✅ /ship registered!');
+    console.log('✅ All commands registered!');
   } catch (err) {
-    console.error('❌ Failed to register slash command:', err);
+    console.error('❌ Failed to register commands:', err);
   }
 });
 
+// ─────────────────────────────────────────
+// INTERACTION HANDLER
+// ─────────────────────────────────────────
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
-  if (interaction.commandName !== 'ship') return;
 
-  await interaction.deferReply();
+  // ── SHIP ──
+  if (interaction.commandName === 'ship') {
+    await interaction.deferReply();
+    const user1 = interaction.options.getUser('member1');
+    const user2 = interaction.options.getUser('member2');
 
-  const user1 = interaction.options.getUser('member1');
-  const user2 = interaction.options.getUser('member2');
+    if (user1.id === user2.id)
+      return interaction.editReply({ content: '❌ You cant ship someone with themselves lol' });
 
-  if (user1.id === user2.id) {
-    return interaction.editReply({ content: '❌ You cant ship someone with themselves lol' });
+    const member1 = await interaction.guild.members.fetch(user1.id).catch(() => null);
+    const member2 = await interaction.guild.members.fetch(user2.id).catch(() => null);
+    const name1 = member1?.displayName || user1.username;
+    const name2 = member2?.displayName || user2.username;
+    const percent = getShipPercent(user1.id, user2.id);
+
+    try {
+      const buf = await generateShipImage(
+        user1.displayAvatarURL({ extension: 'png' }),
+        user2.displayAvatarURL({ extension: 'png' }),
+        name1, name2, percent
+      );
+      const attachment = new AttachmentBuilder(buf, { name: 'ship.png' });
+      const embed = new EmbedBuilder()
+        .setTitle('💘 Ship Results')
+        .setImage('attachment://ship.png')
+        .setColor(percent === 100 ? 0xFF69B4 : 0xE91E8C)
+        .setFooter({ text: `Requested by ${interaction.member?.displayName || interaction.user.username}` });
+      await interaction.editReply({ embeds: [embed], files: [attachment] });
+    } catch (err) {
+      console.error('❌ Ship error:', err);
+      await interaction.editReply({ content: '❌ Something went wrong.' });
+    }
   }
 
-  const member1 = await interaction.guild.members.fetch(user1.id).catch(() => null);
-  const member2 = await interaction.guild.members.fetch(user2.id).catch(() => null);
+  // ── JAIL ──
+  else if (interaction.commandName === 'jail') {
+    await interaction.deferReply();
+    const user = interaction.options.getUser('member');
+    const member = await interaction.guild.members.fetch(user.id).catch(() => null);
+    const name = member?.displayName || user.username;
 
-  const name1 = member1?.displayName || user1.username;
-  const name2 = member2?.displayName || user2.username;
+    try {
+      const buf = await generateJailImage(user.displayAvatarURL({ extension: 'png' }), name);
+      const attachment = new AttachmentBuilder(buf, { name: 'jail.png' });
+      const embed = new EmbedBuilder()
+        .setTitle('🔒 Arrested!')
+        .setImage('attachment://jail.png')
+        .setColor(0x888888)
+        .setFooter({ text: `Jailed by ${interaction.member?.displayName || interaction.user.username}` });
+      await interaction.editReply({ embeds: [embed], files: [attachment] });
+    } catch (err) {
+      console.error('❌ Jail error:', err);
+      await interaction.editReply({ content: '❌ Something went wrong.' });
+    }
+  }
 
-  const percent = getShipPercent(user1.id, user2.id);
+  // ── HOW GAY ──
+  else if (interaction.commandName === 'howgay') {
+    await interaction.deferReply();
+    const user = interaction.options.getUser('member');
+    const member = await interaction.guild.members.fetch(user.id).catch(() => null);
+    const name = member?.displayName || user.username;
 
-  try {
-    const imageBuffer = await generateShipImage(
-      user1.displayAvatarURL({ extension: 'png' }),
-      user2.displayAvatarURL({ extension: 'png' }),
-      name1,
-      name2,
-      percent
-    );
+    // Consistent percent based on user id
+    const seed = [...user.id].reduce((acc, c) => acc + c.charCodeAt(0), 0);
+    const percent = seed % 101;
 
-    const attachment = new AttachmentBuilder(imageBuffer, { name: 'ship.png' });
+    try {
+      const buf = await generateGayImage(user.displayAvatarURL({ extension: 'png' }), name, percent);
+      const attachment = new AttachmentBuilder(buf, { name: 'gay.png' });
+      const embed = new EmbedBuilder()
+        .setTitle('🏳️‍🌈 Gay Meter')
+        .setImage('attachment://gay.png')
+        .setColor(0xFF69B4)
+        .setFooter({ text: `Requested by ${interaction.member?.displayName || interaction.user.username}` });
+      await interaction.editReply({ embeds: [embed], files: [attachment] });
+    } catch (err) {
+      console.error('❌ Howgay error:', err);
+      await interaction.editReply({ content: '❌ Something went wrong.' });
+    }
+  }
+
+  // ── RIVAL ──
+  else if (interaction.commandName === 'rival') {
+    const user1 = interaction.options.getUser('member1');
+    const user2 = interaction.options.getUser('member2');
+
+    if (user1.id === user2.id)
+      return interaction.reply({ content: '❌ Someone cant rival themselves lol', ephemeral: true });
+
+    const member1 = await interaction.guild.members.fetch(user1.id).catch(() => null);
+    const member2 = await interaction.guild.members.fetch(user2.id).catch(() => null);
+    const name1 = member1?.displayName || user1.username;
+    const name2 = member2?.displayName || user2.username;
+
+    const key = [user1.id, user2.id].sort().join('-');
+    rivalPairs[key] = { name1, name2, id1: user1.id, id2: user2.id };
 
     const embed = new EmbedBuilder()
-      .setTitle('💘 Ship Results')
-      .setImage('attachment://ship.png')
-      .setColor(percent === 100 ? 0xFF69B4 : 0xE91E8C)
-      .setFooter({ text: `Requested by ${interaction.member?.displayName || interaction.user.username}` });
+      .setTitle('⚔️ Rivalry Declared!')
+      .setDescription(
+        `**${name1}** ⚔️ **${name2}**\n\n` +
+        `A rivalry has been declared between these two!\n` +
+        `May the best one win. 😤`
+      )
+      .setColor(0xFF4444)
+      .setThumbnail(user1.displayAvatarURL())
+      .setFooter({ text: `Declared by ${interaction.member?.displayName || interaction.user.username}` });
 
-    await interaction.editReply({ embeds: [embed], files: [attachment] });
-  } catch (err) {
-    console.error('❌ Ship image error:', err);
-    await interaction.editReply({ content: '❌ Something went wrong generating the ship image.' });
+    await interaction.reply({ embeds: [embed] });
+  }
+
+  // ── LORE ──
+  else if (interaction.commandName === 'lore') {
+    const sub = interaction.options.getSubcommand();
+
+    if (sub === 'add') {
+      const text = interaction.options.getString('text');
+      const author = interaction.member?.displayName || interaction.user.username;
+      loreList.push({ text, author });
+
+      const embed = new EmbedBuilder()
+        .setTitle('📖 Lore Added!')
+        .setDescription(`*"${text}"*`)
+        .setColor(0xf0a500)
+        .setFooter({ text: `Added by ${author} • Entry #${loreList.length}` });
+
+      await interaction.reply({ embeds: [embed] });
+
+    } else if (sub === 'get') {
+      if (loreList.length === 0) {
+        return interaction.reply({ content: '📖 No lore yet! Add some with `/lore add`', ephemeral: true });
+      }
+
+      const entry = loreList[Math.floor(Math.random() * loreList.length)];
+      const embed = new EmbedBuilder()
+        .setTitle('📖 Server Lore')
+        .setDescription(`*"${entry.text}"*`)
+        .setColor(0xf0a500)
+        .setFooter({ text: `Added by ${entry.author} • ${loreList.length} entries total` });
+
+      await interaction.reply({ embeds: [embed] });
+    }
   }
 });
 
+// ─────────────────────────────────────────
+// VIDEO HANDLER
+// ─────────────────────────────────────────
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
 
@@ -296,9 +609,7 @@ client.on('messageCreate', async (message) => {
   let fetchingMsg;
   try {
     fetchingMsg = await message.channel.send(`⏳ Fetching ${source} video...`);
-  } catch (err) {
-    console.log('⚠️ Could not send fetching message');
-  }
+  } catch {}
 
   try { await message.delete(); } catch {}
 
@@ -317,19 +628,14 @@ client.on('messageCreate', async (message) => {
     const files = fs.readdirSync(tempDir).filter(f => f.startsWith(`${timestamp}_raw`));
     if (!files.length) {
       try { if (fetchingMsg) await fetchingMsg.delete(); } catch {}
-      try { await message.channel.send('❌ Download failed — file not found after download.'); } catch {}
+      try { await message.channel.send('❌ Download failed — file not found.'); } catch {}
       return;
     }
 
     const rawPath = path.join(tempDir, files[0]);
-    console.log(`📂 [${source}] Downloaded as: ${files[0]}`);
-
     const duration = getVideoDuration(rawPath);
-    const targetSizeMB = 7;
-    const bitrate = Math.floor((targetSizeMB * 8192) / duration);
-    console.log(`📹 [${source}] Duration: ${duration}s | Bitrate: ${bitrate}k`);
+    const bitrate = Math.floor((7 * 8192) / duration);
 
-    // -threads 1 and -preset ultrafast to save memory on Railway
     exec(`ffmpeg -i "${rawPath}" -vcodec libx264 -b:v ${bitrate}k -preset ultrafast -threads 1 -acodec aac -b:a 64k -y "${compressedPath}"`, async (err) => {
       try { if (fetchingMsg) await fetchingMsg.delete(); } catch {}
       try { if (fs.existsSync(rawPath)) fs.unlinkSync(rawPath); } catch {}
@@ -342,13 +648,10 @@ client.on('messageCreate', async (message) => {
 
       const stats = fs.statSync(compressedPath);
       const fileSizeMB = stats.size / (1024 * 1024);
-      console.log(`📦 [${source}] Compressed size: ${fileSizeMB.toFixed(2)}MB`);
 
       if (fileSizeMB > 10) {
         try { fs.unlinkSync(compressedPath); } catch {}
-        try {
-          await message.channel.send(`❌ Video too large (${fileSizeMB.toFixed(1)}MB) even after compression. Try a shorter ${source === 'Instagram' ? 'reel' : 'short'}!`);
-        } catch {}
+        try { await message.channel.send(`❌ Video too large (${fileSizeMB.toFixed(1)}MB). Try a shorter one!`); } catch {}
         return;
       }
 
@@ -357,10 +660,9 @@ client.on('messageCreate', async (message) => {
           .setAuthor({ name: senderName, iconURL: senderAvatar })
           .setColor(embedColor);
         await message.channel.send({ embeds: [embed], files: [compressedPath] });
-        console.log(`✅ [${source}] Video sent successfully for ${senderName}`);
       } catch (sendErr) {
-        console.error(`❌ Could not send ${source} video:`, sendErr.message);
-        try { await message.channel.send('❌ Could not send the video. File may be too large!'); } catch {}
+        console.error('❌ Send error:', sendErr.message);
+        try { await message.channel.send('❌ Could not send the video.'); } catch {}
       }
 
       try { if (fs.existsSync(compressedPath)) fs.unlinkSync(compressedPath); } catch {}
