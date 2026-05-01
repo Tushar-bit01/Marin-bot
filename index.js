@@ -29,8 +29,12 @@ const YT_SHORT_REGEX = /https?:\/\/(www\.)?(youtube\.com\/shorts|youtu\.be)\/[A-
 const SPECIAL_PAIRS = [
   ['1474239913959620723', '1014190745558712370'],
   ['1273126903053684787', '793004680233484298'],
-  ['11351937101913915433', '1465438439888392364'],
 ];
+
+// Make sure temp folder exists
+if (!fs.existsSync(path.join(__dirname, 'temp'))) {
+  fs.mkdirSync(path.join(__dirname, 'temp'));
+}
 
 function getShipPercent(id1, id2) {
   for (const [a, b] of SPECIAL_PAIRS) {
@@ -52,7 +56,6 @@ function getShipName(name1, name2) {
   return name1.slice(0, Math.ceil(name1.length / 2)) + name2.slice(Math.floor(name2.length / 2));
 }
 
-// Draw a circle-clipped image
 function drawCircularImage(ctx, img, x, y, radius) {
   ctx.save();
   ctx.beginPath();
@@ -63,7 +66,6 @@ function drawCircularImage(ctx, img, x, y, radius) {
   ctx.restore();
 }
 
-// Draw a glowing ring around avatar
 function drawGlowRing(ctx, x, y, radius, color) {
   ctx.save();
   ctx.shadowColor = color;
@@ -76,7 +78,6 @@ function drawGlowRing(ctx, x, y, radius, color) {
   ctx.restore();
 }
 
-// Draw heart shape
 function drawHeart(ctx, x, y, size, color) {
   ctx.save();
   ctx.fillStyle = color;
@@ -97,7 +98,6 @@ async function generateShipImage(avatarUrl1, avatarUrl2, name1, name2, percent) 
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext('2d');
 
-  // Background gradient
   const bg = ctx.createLinearGradient(0, 0, W, H);
   bg.addColorStop(0, '#1a0a2e');
   bg.addColorStop(0.5, '#2d1245');
@@ -105,7 +105,6 @@ async function generateShipImage(avatarUrl1, avatarUrl2, name1, name2, percent) 
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
 
-  // Subtle star dots
   ctx.fillStyle = 'rgba(255,255,255,0.3)';
   for (let i = 0; i < 80; i++) {
     const sx = Math.random() * W;
@@ -116,7 +115,6 @@ async function generateShipImage(avatarUrl1, avatarUrl2, name1, name2, percent) 
     ctx.fill();
   }
 
-  // Load avatars
   const av1 = await loadImage(avatarUrl1 + '?size=256');
   const av2 = await loadImage(avatarUrl2 + '?size=256');
 
@@ -125,21 +123,16 @@ async function generateShipImage(avatarUrl1, avatarUrl2, name1, name2, percent) 
   const leftX = 155;
   const rightX = W - 155;
 
-  // Glow rings
   const color1 = percent === 100 ? '#ff6eb4' : '#a78bfa';
   const color2 = percent === 100 ? '#ff6eb4' : '#f472b6';
   drawGlowRing(ctx, leftX, centerY, avatarRadius, color1);
   drawGlowRing(ctx, rightX, centerY, avatarRadius, color2);
-
-  // Avatars
   drawCircularImage(ctx, av1, leftX, centerY, avatarRadius);
   drawCircularImage(ctx, av2, rightX, centerY, avatarRadius);
 
-  // Heart in center
   const heartSize = 36;
   drawHeart(ctx, W / 2, centerY - heartSize * 0.9, heartSize, percent === 100 ? '#ff3d8f' : '#e879a0');
 
-  // Percentage text inside heart area
   ctx.save();
   ctx.font = 'bold 38px Sans';
   ctx.fillStyle = '#ffffff';
@@ -150,12 +143,10 @@ async function generateShipImage(avatarUrl1, avatarUrl2, name1, name2, percent) 
   ctx.fillText(`${percent}%`, W / 2, centerY + heartSize * 1.2);
   ctx.restore();
 
-  // Name labels
   ctx.font = 'bold 22px Sans';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
 
-  // Name 1
   ctx.save();
   ctx.fillStyle = '#ffffff';
   ctx.shadowColor = color1;
@@ -163,7 +154,6 @@ async function generateShipImage(avatarUrl1, avatarUrl2, name1, name2, percent) 
   ctx.fillText(name1, leftX, centerY + avatarRadius + 12);
   ctx.restore();
 
-  // Name 2
   ctx.save();
   ctx.fillStyle = '#ffffff';
   ctx.shadowColor = color2;
@@ -171,7 +161,6 @@ async function generateShipImage(avatarUrl1, avatarUrl2, name1, name2, percent) 
   ctx.fillText(name2, rightX, centerY + avatarRadius + 12);
   ctx.restore();
 
-  // Ship name at top
   const shipName = getShipName(name1, name2);
   ctx.save();
   ctx.font = 'bold 20px Sans';
@@ -181,7 +170,6 @@ async function generateShipImage(avatarUrl1, avatarUrl2, name1, name2, percent) 
   ctx.fillText(`✦ Ship name: ${shipName} ✦`, W / 2, 14);
   ctx.restore();
 
-  // Message at bottom
   ctx.save();
   ctx.font = '18px Sans';
   ctx.fillStyle = 'rgba(255,200,230,0.85)';
@@ -190,7 +178,6 @@ async function generateShipImage(avatarUrl1, avatarUrl2, name1, name2, percent) 
   ctx.fillText(getShipMessage(percent), W / 2, H - 12);
   ctx.restore();
 
-  // Border glow around whole card
   ctx.save();
   ctx.strokeStyle = percent === 100 ? '#ff6eb4' : '#a78bfa';
   ctx.shadowColor = percent === 100 ? '#ff6eb4' : '#a78bfa';
@@ -338,11 +325,12 @@ client.on('messageCreate', async (message) => {
     console.log(`📂 [${source}] Downloaded as: ${files[0]}`);
 
     const duration = getVideoDuration(rawPath);
-    const targetSizeMB = 8;
+    const targetSizeMB = 7;
     const bitrate = Math.floor((targetSizeMB * 8192) / duration);
     console.log(`📹 [${source}] Duration: ${duration}s | Bitrate: ${bitrate}k`);
 
-    exec(`ffmpeg -i "${rawPath}" -vcodec libx264 -b:v ${bitrate}k -preset fast -acodec aac -b:a 96k -y "${compressedPath}"`, async (err) => {
+    // -threads 1 and -preset ultrafast to save memory on Railway
+    exec(`ffmpeg -i "${rawPath}" -vcodec libx264 -b:v ${bitrate}k -preset ultrafast -threads 1 -acodec aac -b:a 64k -y "${compressedPath}"`, async (err) => {
       try { if (fetchingMsg) await fetchingMsg.delete(); } catch {}
       try { if (fs.existsSync(rawPath)) fs.unlinkSync(rawPath); } catch {}
 
