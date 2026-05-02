@@ -8,10 +8,12 @@ const {
   SlashCommandBuilder,
   AttachmentBuilder,
 } = require('discord.js');
-const { exec, execSync } = require('child_process');
+const { execSync } = require('child_process');
 const { createCanvas, loadImage } = require('canvas');
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
+const http = require('http');
 
 const client = new Client({
   intents: [
@@ -31,13 +33,73 @@ const SPECIAL_PAIRS = [
   ['1273126903053684787', '793004680233484298'],
 ];
 
-// In-memory storage (resets on restart, fine for fun commands)
-const loreList = [];       // { text, author }
-const rivalPairs = {};     // 'id1-id2' -> { name1, name2, score1, score2 }
+const loreList = [];
+const rivalPairs = {};
 
-// Make sure temp folder exists
 if (!fs.existsSync(path.join(__dirname, 'temp'))) {
   fs.mkdirSync(path.join(__dirname, 'temp'));
+}
+
+// ─────────────────────────────────────────
+// COBALT API DOWNLOADER (no login needed)
+// ─────────────────────────────────────────
+async function getDownloadUrl(videoUrl) {
+  const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args));
+
+  const res = await fetch('https://cobalt.tools/api/json', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+    body: JSON.stringify({
+      url: videoUrl,
+      vCodec: 'h264',
+      vQuality: '720',
+      aFormat: 'mp3',
+      isNoTTWatermark: true,
+    }),
+  });
+
+  const data = await res.json();
+  console.log('📡 Cobalt response:', JSON.stringify(data));
+
+  if (data.status === 'stream' || data.status === 'redirect') {
+    return data.url;
+  } else if (data.status === 'picker') {
+    return data.picker?.[0]?.url || null;
+  }
+
+  return null;
+}
+
+function downloadFile(url, destPath) {
+  return new Promise((resolve, reject) => {
+    const proto = url.startsWith('https') ? https : http;
+    const file = fs.createWriteStream(destPath);
+
+    const request = proto.get(url, (res) => {
+      if (res.statusCode === 302 || res.statusCode === 301) {
+        file.close();
+        return downloadFile(res.headers.location, destPath).then(resolve).catch(reject);
+      }
+      res.pipe(file);
+      file.on('finish', () => {
+        file.close();
+        resolve();
+      });
+    });
+
+    request.on('error', (err) => {
+      fs.unlink(destPath, () => {});
+      reject(err);
+    });
+
+    file.on('error', (err) => {
+      fs.unlink(destPath, () => {});
+      reject(err);
+    });
+  });
 }
 
 // ─────────────────────────────────────────
@@ -210,11 +272,9 @@ async function generateJailImage(avatarUrl, username) {
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext('2d');
 
-  // Dark background
   ctx.fillStyle = '#1a1a1a';
   ctx.fillRect(0, 0, W, H);
 
-  // Grungy brick wall
   for (let row = 0; row < 10; row++) {
     for (let col = 0; col < 6; col++) {
       const offset = row % 2 === 0 ? 0 : 35;
@@ -226,14 +286,10 @@ async function generateJailImage(avatarUrl, username) {
     }
   }
 
-  // Avatar
   const avatar = await loadImage(avatarUrl + '?size=256');
   drawCircularImage(ctx, avatar, W / 2, H / 2, 120);
-
-  // Glow ring
   drawGlowRing(ctx, W / 2, H / 2, 120, '#ff4444');
 
-  // Jail bars over everything
   const barColor = '#888888';
   const barWidth = 18;
   const barCount = 6;
@@ -245,20 +301,16 @@ async function generateJailImage(avatarUrl, username) {
     ctx.fillStyle = barColor;
     ctx.shadowColor = '#000';
     ctx.shadowBlur = 6;
-    // Main vertical bar
     ctx.fillRect(x - barWidth / 2, 0, barWidth, H);
-    // Bar shine
     ctx.fillStyle = 'rgba(255,255,255,0.15)';
     ctx.fillRect(x - barWidth / 2 + 3, 0, 4, H);
     ctx.restore();
   }
 
-  // Horizontal bar top and bottom
   ctx.fillStyle = barColor;
   ctx.fillRect(0, 30, W, 20);
   ctx.fillRect(0, H - 50, W, 20);
 
-  // Username label
   ctx.save();
   ctx.fillStyle = 'rgba(0,0,0,0.7)';
   ctx.fillRect(0, H - 48, W, 48);
@@ -282,7 +334,6 @@ async function generateGayImage(avatarUrl, username, percent) {
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext('2d');
 
-  // Rainbow background gradient
   const bg = ctx.createLinearGradient(0, 0, W, H);
   bg.addColorStop(0, '#ff6b6b');
   bg.addColorStop(0.2, '#ffd93d');
@@ -293,23 +344,19 @@ async function generateGayImage(avatarUrl, username, percent) {
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
 
-  // Dark overlay
   ctx.fillStyle = 'rgba(0,0,0,0.55)';
   ctx.fillRect(0, 0, W, H);
 
-  // Avatar
   const avatar = await loadImage(avatarUrl + '?size=256');
   drawCircularImage(ctx, avatar, 100, H / 2, 90);
   drawGlowRing(ctx, 100, H / 2, 90, '#ff69b4');
 
-  // Meter bar background
   const barX = 220, barY = 80, barW = 240, barH = 36;
   ctx.fillStyle = 'rgba(255,255,255,0.15)';
   ctx.beginPath();
   ctx.roundRect(barX, barY, barW, barH, 18);
   ctx.fill();
 
-  // Meter fill
   const fillW = (percent / 100) * barW;
   const fillGrad = ctx.createLinearGradient(barX, 0, barX + barW, 0);
   fillGrad.addColorStop(0, '#ff6b6b');
@@ -320,7 +367,6 @@ async function generateGayImage(avatarUrl, username, percent) {
   ctx.roundRect(barX, barY, fillW, barH, 18);
   ctx.fill();
 
-  // Percent text
   ctx.save();
   ctx.font = 'bold 52px Sans';
   ctx.fillStyle = '#ffffff';
@@ -331,7 +377,6 @@ async function generateGayImage(avatarUrl, username, percent) {
   ctx.fillText(`${percent}%`, barX, barY + 50);
   ctx.restore();
 
-  // Label
   ctx.save();
   ctx.font = 'bold 20px Sans';
   ctx.fillStyle = 'rgba(255,255,255,0.85)';
@@ -340,7 +385,6 @@ async function generateGayImage(avatarUrl, username, percent) {
   ctx.fillText(`${username} is ${percent}% gay 🏳️‍🌈`, barX, barY - 36);
   ctx.restore();
 
-  // Message
   let msg = '';
   if (percent >= 90) msg = 'Absolutely fabulous 💅';
   else if (percent >= 70) msg = 'Very much so 🌈';
@@ -435,33 +479,20 @@ client.once('clientReady', async () => {
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
-  // ── SHIP ──
   if (interaction.commandName === 'ship') {
     await interaction.deferReply();
     const user1 = interaction.options.getUser('member1');
     const user2 = interaction.options.getUser('member2');
-
-    if (user1.id === user2.id)
-      return interaction.editReply({ content: '❌ You cant ship someone with themselves lol' });
-
+    if (user1.id === user2.id) return interaction.editReply({ content: '❌ You cant ship someone with themselves lol' });
     const member1 = await interaction.guild.members.fetch(user1.id).catch(() => null);
     const member2 = await interaction.guild.members.fetch(user2.id).catch(() => null);
     const name1 = member1?.displayName || user1.username;
     const name2 = member2?.displayName || user2.username;
     const percent = getShipPercent(user1.id, user2.id);
-
     try {
-      const buf = await generateShipImage(
-        user1.displayAvatarURL({ extension: 'png' }),
-        user2.displayAvatarURL({ extension: 'png' }),
-        name1, name2, percent
-      );
+      const buf = await generateShipImage(user1.displayAvatarURL({ extension: 'png' }), user2.displayAvatarURL({ extension: 'png' }), name1, name2, percent);
       const attachment = new AttachmentBuilder(buf, { name: 'ship.png' });
-      const embed = new EmbedBuilder()
-        .setTitle('💘 Ship Results')
-        .setImage('attachment://ship.png')
-        .setColor(percent === 100 ? 0xFF69B4 : 0xE91E8C)
-        .setFooter({ text: `Requested by ${interaction.member?.displayName || interaction.user.username}` });
+      const embed = new EmbedBuilder().setTitle('💘 Ship Results').setImage('attachment://ship.png').setColor(percent === 100 ? 0xFF69B4 : 0xE91E8C).setFooter({ text: `Requested by ${interaction.member?.displayName || interaction.user.username}` });
       await interaction.editReply({ embeds: [embed], files: [attachment] });
     } catch (err) {
       console.error('❌ Ship error:', err);
@@ -469,21 +500,15 @@ client.on('interactionCreate', async (interaction) => {
     }
   }
 
-  // ── JAIL ──
   else if (interaction.commandName === 'jail') {
     await interaction.deferReply();
     const user = interaction.options.getUser('member');
     const member = await interaction.guild.members.fetch(user.id).catch(() => null);
     const name = member?.displayName || user.username;
-
     try {
       const buf = await generateJailImage(user.displayAvatarURL({ extension: 'png' }), name);
       const attachment = new AttachmentBuilder(buf, { name: 'jail.png' });
-      const embed = new EmbedBuilder()
-        .setTitle('🔒 Arrested!')
-        .setImage('attachment://jail.png')
-        .setColor(0x888888)
-        .setFooter({ text: `Jailed by ${interaction.member?.displayName || interaction.user.username}` });
+      const embed = new EmbedBuilder().setTitle('🔒 Arrested!').setImage('attachment://jail.png').setColor(0x888888).setFooter({ text: `Jailed by ${interaction.member?.displayName || interaction.user.username}` });
       await interaction.editReply({ embeds: [embed], files: [attachment] });
     } catch (err) {
       console.error('❌ Jail error:', err);
@@ -491,25 +516,17 @@ client.on('interactionCreate', async (interaction) => {
     }
   }
 
-  // ── HOW GAY ──
   else if (interaction.commandName === 'howgay') {
     await interaction.deferReply();
     const user = interaction.options.getUser('member');
     const member = await interaction.guild.members.fetch(user.id).catch(() => null);
     const name = member?.displayName || user.username;
-
-    // Consistent percent based on user id
     const seed = [...user.id].reduce((acc, c) => acc + c.charCodeAt(0), 0);
     const percent = seed % 101;
-
     try {
       const buf = await generateGayImage(user.displayAvatarURL({ extension: 'png' }), name, percent);
       const attachment = new AttachmentBuilder(buf, { name: 'gay.png' });
-      const embed = new EmbedBuilder()
-        .setTitle('🏳️‍🌈 Gay Meter')
-        .setImage('attachment://gay.png')
-        .setColor(0xFF69B4)
-        .setFooter({ text: `Requested by ${interaction.member?.displayName || interaction.user.username}` });
+      const embed = new EmbedBuilder().setTitle('🏳️‍🌈 Gay Meter').setImage('attachment://gay.png').setColor(0xFF69B4).setFooter({ text: `Requested by ${interaction.member?.displayName || interaction.user.username}` });
       await interaction.editReply({ embeds: [embed], files: [attachment] });
     } catch (err) {
       console.error('❌ Howgay error:', err);
@@ -517,65 +534,32 @@ client.on('interactionCreate', async (interaction) => {
     }
   }
 
-  // ── RIVAL ──
   else if (interaction.commandName === 'rival') {
     const user1 = interaction.options.getUser('member1');
     const user2 = interaction.options.getUser('member2');
-
-    if (user1.id === user2.id)
-      return interaction.reply({ content: '❌ Someone cant rival themselves lol', ephemeral: true });
-
+    if (user1.id === user2.id) return interaction.reply({ content: '❌ Someone cant rival themselves lol', ephemeral: true });
     const member1 = await interaction.guild.members.fetch(user1.id).catch(() => null);
     const member2 = await interaction.guild.members.fetch(user2.id).catch(() => null);
     const name1 = member1?.displayName || user1.username;
     const name2 = member2?.displayName || user2.username;
-
     const key = [user1.id, user2.id].sort().join('-');
     rivalPairs[key] = { name1, name2, id1: user1.id, id2: user2.id };
-
-    const embed = new EmbedBuilder()
-      .setTitle('⚔️ Rivalry Declared!')
-      .setDescription(
-        `**${name1}** ⚔️ **${name2}**\n\n` +
-        `A rivalry has been declared between these two!\n` +
-        `May the best one win. 😤`
-      )
-      .setColor(0xFF4444)
-      .setThumbnail(user1.displayAvatarURL())
-      .setFooter({ text: `Declared by ${interaction.member?.displayName || interaction.user.username}` });
-
+    const embed = new EmbedBuilder().setTitle('⚔️ Rivalry Declared!').setDescription(`**${name1}** ⚔️ **${name2}**\n\nA rivalry has been declared between these two!\nMay the best one win. 😤`).setColor(0xFF4444).setThumbnail(user1.displayAvatarURL()).setFooter({ text: `Declared by ${interaction.member?.displayName || interaction.user.username}` });
     await interaction.reply({ embeds: [embed] });
   }
 
-  // ── LORE ──
   else if (interaction.commandName === 'lore') {
     const sub = interaction.options.getSubcommand();
-
     if (sub === 'add') {
       const text = interaction.options.getString('text');
       const author = interaction.member?.displayName || interaction.user.username;
       loreList.push({ text, author });
-
-      const embed = new EmbedBuilder()
-        .setTitle('📖 Lore Added!')
-        .setDescription(`*"${text}"*`)
-        .setColor(0xf0a500)
-        .setFooter({ text: `Added by ${author} • Entry #${loreList.length}` });
-
+      const embed = new EmbedBuilder().setTitle('📖 Lore Added!').setDescription(`*"${text}"*`).setColor(0xf0a500).setFooter({ text: `Added by ${author} • Entry #${loreList.length}` });
       await interaction.reply({ embeds: [embed] });
-
     } else if (sub === 'get') {
-      if (loreList.length === 0) {
-        return interaction.reply({ content: '📖 No lore yet! Add some with `/lore add`', ephemeral: true });
-      }
-
+      if (loreList.length === 0) return interaction.reply({ content: '📖 No lore yet! Add some with `/lore add`', ephemeral: true });
       const entry = loreList[Math.floor(Math.random() * loreList.length)];
-      const embed = new EmbedBuilder()
-        .setTitle('📖 Server Lore')
-        .setDescription(`*"${entry.text}"*`)
-        .setColor(0xf0a500)
-        .setFooter({ text: `Added by ${entry.author} • ${loreList.length} entries total` });
-
+      const embed = new EmbedBuilder().setTitle('📖 Server Lore').setDescription(`*"${entry.text}"*`).setColor(0xf0a500).setFooter({ text: `Added by ${entry.author} • ${loreList.length} entries total` });
       await interaction.reply({ embeds: [embed] });
     }
   }
@@ -598,7 +582,7 @@ client.on('messageCreate', async (message) => {
 
   const timestamp = Date.now();
   const tempDir = path.join(__dirname, 'temp');
-  const rawPattern = path.join(tempDir, `${timestamp}_raw`);
+  const rawPath = path.join(tempDir, `${timestamp}_raw.mp4`);
   const compressedPath = path.join(tempDir, `${timestamp}_compressed.mp4`);
 
   const senderName = message.member?.displayName || message.author.username;
@@ -607,67 +591,67 @@ client.on('messageCreate', async (message) => {
   console.log(`📥 [${source}] Detected link from ${senderName}: ${url}`);
 
   let fetchingMsg;
-  try {
-    fetchingMsg = await message.channel.send(`⏳ Fetching ${source} video...`);
-  } catch {}
-
+  try { fetchingMsg = await message.channel.send(`⏳ Fetching ${source} video...`); } catch {}
   try { await message.delete(); } catch {}
 
-  const dlCmd = instaMatch
-    ? `yt-dlp -o "${rawPattern}.%(ext)s" "${url}"`
-    : `yt-dlp --js-runtimes deno -o "${rawPattern}.%(ext)s" "${url}"`;
-
-  exec(dlCmd, async (error) => {
-    if (error) {
+  try {
+    // Get download URL from cobalt
+    const downloadUrl = await getDownloadUrl(url);
+    if (!downloadUrl) {
       try { if (fetchingMsg) await fetchingMsg.delete(); } catch {}
-      console.error(error);
       try { await message.channel.send(`❌ Could not fetch the ${source} video.`); } catch {}
       return;
     }
 
-    const files = fs.readdirSync(tempDir).filter(f => f.startsWith(`${timestamp}_raw`));
-    if (!files.length) {
+    console.log(`🔗 Download URL: ${downloadUrl}`);
+
+    // Download the file
+    await downloadFile(downloadUrl, rawPath);
+
+    if (!fs.existsSync(rawPath)) {
       try { if (fetchingMsg) await fetchingMsg.delete(); } catch {}
-      try { await message.channel.send('❌ Download failed — file not found.'); } catch {}
+      try { await message.channel.send('❌ Download failed.'); } catch {}
       return;
     }
 
-    const rawPath = path.join(tempDir, files[0]);
     const duration = getVideoDuration(rawPath);
     const bitrate = Math.floor((7 * 8192) / duration);
 
-    exec(`ffmpeg -i "${rawPath}" -vcodec libx264 -b:v ${bitrate}k -preset ultrafast -threads 1 -acodec aac -b:a 64k -y "${compressedPath}"`, async (err) => {
-      try { if (fetchingMsg) await fetchingMsg.delete(); } catch {}
-      try { if (fs.existsSync(rawPath)) fs.unlinkSync(rawPath); } catch {}
-
-      if (err) {
-        console.error(err);
-        try { await message.channel.send(`❌ Could not compress the ${source} video.`); } catch {}
-        return;
-      }
-
-      const stats = fs.statSync(compressedPath);
-      const fileSizeMB = stats.size / (1024 * 1024);
-
-      if (fileSizeMB > 10) {
-        try { fs.unlinkSync(compressedPath); } catch {}
-        try { await message.channel.send(`❌ Video too large (${fileSizeMB.toFixed(1)}MB). Try a shorter one!`); } catch {}
-        return;
-      }
-
-      try {
-        const embed = new EmbedBuilder()
-          .setAuthor({ name: senderName, iconURL: senderAvatar })
-          .setColor(embedColor);
-        await message.channel.send({ embeds: [embed], files: [compressedPath] });
-      } catch (sendErr) {
-        console.error('❌ Send error:', sendErr.message);
-        try { await message.channel.send('❌ Could not send the video.'); } catch {}
-      }
-
-      try { if (fs.existsSync(compressedPath)) fs.unlinkSync(compressedPath); } catch {}
+    // Compress
+    await new Promise((resolve, reject) => {
+      const { exec } = require('child_process');
+      exec(`ffmpeg -i "${rawPath}" -vcodec libx264 -b:v ${bitrate}k -preset ultrafast -threads 1 -acodec aac -b:a 64k -y "${compressedPath}"`, (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
     });
-  });
+
+    try { if (fetchingMsg) await fetchingMsg.delete(); } catch {}
+    try { if (fs.existsSync(rawPath)) fs.unlinkSync(rawPath); } catch {}
+
+    const stats = fs.statSync(compressedPath);
+    const fileSizeMB = stats.size / (1024 * 1024);
+
+    if (fileSizeMB > 10) {
+      try { fs.unlinkSync(compressedPath); } catch {}
+      try { await message.channel.send(`❌ Video too large (${fileSizeMB.toFixed(1)}MB). Try a shorter one!`); } catch {}
+      return;
+    }
+
+    const embed = new EmbedBuilder()
+      .setAuthor({ name: senderName, iconURL: senderAvatar })
+      .setColor(embedColor);
+    await message.channel.send({ embeds: [embed], files: [compressedPath] });
+    console.log(`✅ [${source}] Sent successfully for ${senderName}`);
+
+  } catch (err) {
+    console.error(`❌ Video error:`, err.message);
+    try { if (fetchingMsg) await fetchingMsg.delete(); } catch {}
+    try { await message.channel.send(`❌ Could not process the ${source} video.`); } catch {}
+  } finally {
+    try { if (fs.existsSync(rawPath)) fs.unlinkSync(rawPath); } catch {}
+    try { if (fs.existsSync(compressedPath)) fs.unlinkSync(compressedPath); } catch {}
+  }
 });
 
 client.on('error', (err) => console.error('❌ Bot error:', err.message));
